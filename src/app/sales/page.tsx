@@ -51,7 +51,7 @@ export default function SalesPage() {
                 </div>
                 <Dialog open={isOpen} onOpenChange={setIsOpen}>
                     <DialogTrigger asChild>
-                        <Button className="bg-primary text-white">
+                        <Button className="bg-primary text-gray-200">
                             <Plus className="mr-2 h-4 w-4" />
                             販売登録
                         </Button>

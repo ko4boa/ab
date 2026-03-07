@@ -114,7 +114,7 @@ export default function ReservationsPage() {
                 </div>
                 <Dialog open={isOpen} onOpenChange={setIsOpen}>
                     <DialogTrigger asChild>
-                        <Button className="bg-primary text-white">
+                        <Button className="bg-primary text-gray-200">
                             <ArrowLeftRight className="mr-2 h-4 w-4" />
                             取り置き登録
                         </Button>

@@ -53,7 +53,7 @@ export default function InventoryPage() {
                 </div>
                 <Dialog open={isReceiveOpen} onOpenChange={setIsReceiveOpen}>
                     <DialogTrigger asChild>
-                        <Button className="bg-primary text-white">
+                        <Button className="bg-primary text-gray-200">
                             <Box className="mr-2 h-4 w-4" />
                             入荷登録
                         </Button>

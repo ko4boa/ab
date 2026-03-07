@@ -63,7 +63,7 @@ export default function DashboardPage() {
               入荷登録
             </Link>
           </Button>
-          <Button asChild className="bg-primary text-white hover:bg-primary/90">
+          <Button asChild className="bg-primary text-gray-200 hover:bg-primary/90">
             <Link href="/sales">
               <Plus className="mr-2 h-4 w-4" />
               販売登録
