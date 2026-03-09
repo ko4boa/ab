@@ -1,8 +1,7 @@
 "use client"
 
-import { useState } from "react"
-import { useLiveQuery } from "dexie-react-hooks"
-import { db } from "@/lib/db"
+import { useState, useEffect } from "react"
+import { supabase } from "@/lib/supabase"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -31,11 +30,31 @@ export function ReservationForm({ onSuccess }: ReservationFormProps) {
     });
     const [deposit, setDeposit] = useState(0);
 
-    const products = useLiveQuery(() => db.products.toArray()) || [];
+    const [products, setProducts] = useState<any[]>([]);
+    const [stock, setStock] = useState<any>(null);
 
-    const stock = useLiveQuery(async () => {
-        if (!productId) return null;
-        return await db.inventoryBalances.get(productId);
+    useEffect(() => {
+        const fetchProducts = async () => {
+            const { data } = await supabase.from('products').select('*');
+            if (data) setProducts(data);
+        };
+        fetchProducts();
+    }, []);
+
+    useEffect(() => {
+        const fetchStock = async () => {
+            if (!productId) {
+                setStock(null);
+                return;
+            }
+            const { data } = await supabase
+                .from('inventoryBalances')
+                .select('*')
+                .eq('productId', productId)
+                .single();
+            setStock(data);
+        };
+        fetchStock();
     }, [productId]);
 
     const handleSubmit = async (e: React.FormEvent) => {
@@ -61,7 +80,7 @@ export function ReservationForm({ onSuccess }: ReservationFormProps) {
             const reservationId = crypto.randomUUID();
 
             // Create Reservation
-            await db.reservations.add({
+            const { error: resError } = await supabase.from('reservations').insert({
                 reservationId,
                 createdAt: now,
                 productId,
@@ -72,15 +91,26 @@ export function ReservationForm({ onSuccess }: ReservationFormProps) {
                 status: 'active',
                 statusUpdatedAt: now
             });
+            if (resError) throw resError;
 
             // Update Inventory (Increase Reserved Qty)
-            const currentBal = await db.inventoryBalances.get(productId);
-            if (currentBal) {
-                await db.inventoryBalances.update(productId, {
-                    reservedQty: (currentBal.reservedQty || 0) + qty,
+            const { data: currentBal, error: getBalError } = await supabase
+                .from('inventoryBalances')
+                .select('reservedQty')
+                .eq('productId', productId)
+                .single();
+
+            if (getBalError) throw getBalError;
+
+            const { error: updateError } = await supabase
+                .from('inventoryBalances')
+                .update({
+                    reservedQty: (currentBal?.reservedQty || 0) + qty,
                     updatedAt: now
-                });
-            }
+                })
+                .eq('productId', productId);
+
+            if (updateError) throw updateError;
 
             onSuccess();
         } catch (error) {

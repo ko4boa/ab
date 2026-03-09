@@ -1,9 +1,21 @@
-[00:00:02.144] Server  LOG     
-[00:00:02.144] Server  LOG       We detected TypeScript in your project and reconfigured your tsconfig.json file for you.
-[00:00:02.144] Server  LOG       The following suggested values were added to your tsconfig.json. These values can be changed to fit your project's needs:
+[00:00:02.834] Server  ERROR   ⨯ The file "./src/proxy.ts" must export a function, either as a default export or as a named "proxy" export.
+This function is what Next.js runs for every request handled by this proxy (previously called middleware).
 
-[00:00:02.144] Server  LOG       	- include was updated to add '.next.nosync/types/**/*.ts'
-[00:00:02.144] Server  LOG       	- include was updated to add '.next.nosync/dev/types/**/*.ts'
-[00:00:02.144] Server  LOG     
-[00:00:02.541] Server  LOG     ✓ Ready in 1914ms
-[00:00:57.642] Server  LOG     ○ Compiling / ...
+Why this happens:
+- You are migrating from `middleware` to `proxy`, but haven't updated the exported function.
+- The file exists but doesn't export a function.
+- The export is not a function (e.g., an object or constant).
+- There's a syntax error preventing the export from being recognized.
+
+To fix it:
+- Ensure this file has either a default or "proxy" function export.
+
+Learn more: https://nextjs.org/docs/messages/middleware-to-proxy
+[00:00:03.175] Server  LOG     ✓ Ready in 2.1s
+[00:00:18.583] Server  LOG     ✓ Compiled in 2ms
+[00:37:48.693] Server  LOG       Reload env: .env.local
+[02:14:31.325] Server  LOG     ✓ Compiled in 123ms
+[02:14:40.498] Server  LOG     ✓ Compiled in 138ms
+[02:14:54.446] Server  LOG     ✓ Compiled in 132ms
+[02:15:04.197] Server  LOG     ✓ Compiled in 306ms
+[37:52:40.493] Server  LOG     ✓ Compiled in 298ms

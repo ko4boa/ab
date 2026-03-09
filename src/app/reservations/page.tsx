@@ -1,8 +1,7 @@
 "use client"
 
-import { useState } from "react"
-import { useLiveQuery } from "dexie-react-hooks"
-import { db } from "@/lib/db"
+import { useState, useEffect } from "react"
+import { supabase } from "@/lib/supabase"
 import { Button } from "@/components/ui/button"
 import {
     Dialog,
@@ -30,27 +29,39 @@ export default function ReservationsPage() {
     const [isOpen, setIsOpen] = useState(false);
     const [filter, setFilter] = useState<'active' | 'history'>('active');
 
-    const reservations = useLiveQuery(async () => {
-        let collection = db.reservations.orderBy('dueDate');
-        if (filter === 'active') {
-            // @ts-ignore
-            collection = collection.filter(r => r.status === 'active');
-        } else {
-            // @ts-ignore
-            collection = collection.filter(r => r.status !== 'active');
-        }
-        const list = await collection.toArray();
+    const [reservations, setReservations] = useState<any[]>([]);
 
-        // Join with products
-        const joined = await Promise.all(list.map(async (r) => {
-            const product = await db.products.get(r.productId);
-            return {
-                ...r,
-                productName: product?.name || "Unknown Product",
-                sellPrice: product?.sellPrice
-            };
+    const fetchReservations = async () => {
+        let query = supabase
+            .from('reservations')
+            .select(`
+                *,
+                products (
+                    name,
+                    sellPrice
+                )
+            `);
+
+        if (filter === 'active') {
+            query = query.eq('status', 'active');
+        } else {
+            query = query.neq('status', 'active');
+        }
+
+        const { data, error } = await query.order('dueDate', { ascending: true });
+
+        if (error || !data) return;
+
+        const joined = data.map((r: any) => ({
+            ...r,
+            productName: r.products?.name || "Unknown Product",
+            sellPrice: r.products?.sellPrice
         }));
-        return joined; // Active sorted by due date, history might need resort
+        setReservations(joined);
+    };
+
+    useEffect(() => {
+        fetchReservations();
     }, [filter]);
 
     const handleAction = async (res: Reservation & { sellPrice?: number }, action: 'purchased' | 'cancelled') => {
@@ -60,43 +71,57 @@ export default function ReservationsPage() {
         const now = new Date().toISOString();
 
         try {
-            await db.transaction('rw', db.reservations, db.sales, db.inventoryBalances, async () => {
-                // Update Reservation Status
-                await db.reservations.update(res.reservationId, {
+            // Update Reservation Status
+            const { error: resError } = await supabase
+                .from('reservations')
+                .update({
                     status: action,
                     statusUpdatedAt: now
+                })
+                .eq('reservationId', res.reservationId);
+            if (resError) throw resError;
+
+            // Release Reserved Qty & Update On Hand
+            const { data: currentBal, error: getBalError } = await supabase
+                .from('inventoryBalances')
+                .select('*')
+                .eq('productId', res.productId)
+                .single();
+            if (getBalError || !currentBal) throw new Error("Inventory not found");
+
+            let newReserved = (currentBal.reservedQty || 0) - res.qty;
+            if (newReserved < 0) newReserved = 0;
+
+            let newOnHand = currentBal.onHandQty;
+
+            if (action === 'purchased') {
+                // Create Sale
+                const { error: saleError } = await supabase.from('sales').insert({
+                    saleId: crypto.randomUUID(),
+                    soldAt: now,
+                    productId: res.productId,
+                    qty: res.qty,
+                    unitPrice: res.sellPrice || 0,
+                    paymentMethod: 'other',
+                    memo: `取り置き(${res.customerName})より`
                 });
+                if (saleError) throw saleError;
 
-                // Release Reserved Qty
-                const currentBal = await db.inventoryBalances.get(res.productId);
-                if (!currentBal) throw new Error("Inventory not found");
+                // Reduce On Hand
+                newOnHand -= res.qty;
+            }
 
-                let newReserved = (currentBal.reservedQty || 0) - res.qty;
-                if (newReserved < 0) newReserved = 0;
-
-                let newOnHand = currentBal.onHandQty;
-
-                if (action === 'purchased') {
-                    // Create Sale
-                    await db.sales.add({
-                        saleId: crypto.randomUUID(),
-                        soldAt: now,
-                        productId: res.productId,
-                        qty: res.qty,
-                        unitPrice: res.sellPrice || 0,
-                        paymentMethod: 'other', // Default or ask user? assuming cash/other for quick flow
-                        memo: `取り置き(${res.customerName})より`
-                    });
-                    // Reduce On Hand
-                    newOnHand -= res.qty;
-                }
-
-                await db.inventoryBalances.update(res.productId, {
+            const { error: updateError } = await supabase
+                .from('inventoryBalances')
+                .update({
                     reservedQty: newReserved,
                     onHandQty: newOnHand,
                     updatedAt: now
-                });
-            });
+                })
+                .eq('productId', res.productId);
+            if (updateError) throw updateError;
+
+            fetchReservations();
         } catch (e) {
             console.error(e);
             alert("ステータス更新に失敗しました");
@@ -126,7 +151,7 @@ export default function ReservationsPage() {
                                 商品を確保します。販売可能在庫から差し引かれます。
                             </DialogDescription>
                         </DialogHeader>
-                        <ReservationForm onSuccess={() => setIsOpen(false)} />
+                        <ReservationForm onSuccess={() => { setIsOpen(false); fetchReservations(); }} />
                     </DialogContent>
                 </Dialog>
             </div>

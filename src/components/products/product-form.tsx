@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { db } from "@/lib/db"
+import { supabase } from "@/lib/supabase"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -32,12 +32,14 @@ export function ProductForm({ onSuccess, initialData }: ProductFormProps) {
 
         try {
             const now = new Date().toISOString();
-            const productData: Product = {
-                productId: initialData?.productId || crypto.randomUUID(),
+            const productId = initialData?.productId || crypto.randomUUID();
+
+            const productData = {
+                productId: productId,
                 brand: formData.brand || "",
                 name: formData.name || "",
                 category: formData.category || "",
-                supplierId: formData.supplierId || "DEFAULT",
+                supplierId: formData.supplierId || "DEFAULT", // supplierIdの依存があるので後できちんと扱うか、とりあえずDEFAULTを許容する
                 defaultCost: Number(formData.defaultCost) || 0,
                 sellPrice: Number(formData.sellPrice) || 0,
                 location: formData.location || "",
@@ -48,22 +50,32 @@ export function ProductForm({ onSuccess, initialData }: ProductFormProps) {
                 updatedAt: now,
             };
 
-            await db.products.put(productData);
+            // supplierIdが存在しないとエラーになるため、一時的に "DEFAULT" サプライヤーを作るかSupabase側へ送信する
+            // 簡略化のため、まず suppliers テーブルにダミーがない場合はエラーになるので注意。本番では選択させる。
+            const { error: productError } = await supabase
+                .from('products')
+                .upsert(productData);
+
+            if (productError) throw productError;
 
             // If new product, initialize inventory with 0
             if (!initialData) {
-                await db.inventoryBalances.put({
-                    productId: productData.productId,
-                    onHandQty: 0,
-                    reservedQty: 0,
-                    updatedAt: now
-                });
+                const { error: invError } = await supabase
+                    .from('inventoryBalances')
+                    .upsert({
+                        productId: productData.productId,
+                        onHandQty: 0,
+                        reservedQty: 0,
+                        updatedAt: now
+                    });
+                if (invError) throw invError;
             }
 
             setFormData({});
-            onSuccess();
+            if (onSuccess) onSuccess();
         } catch (error) {
             console.error("Failed to save product", error);
+            alert("保存に失敗しました。ダミーサプライヤー(DEFAULT)が存在しない可能性があります。");
         } finally {
             setIsLoading(false);
         }

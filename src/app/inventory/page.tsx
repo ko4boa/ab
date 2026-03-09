@@ -1,8 +1,7 @@
 "use client"
 
-import { useState } from "react"
-import { useLiveQuery } from "dexie-react-hooks"
-import { db } from "@/lib/db"
+import { useState, useEffect } from "react"
+import { supabase } from "@/lib/supabase"
 import { Button } from "@/components/ui/button"
 import {
     Dialog,
@@ -26,21 +25,37 @@ import { ReceiveForm } from "@/components/inventory/receive-form"
 export default function InventoryPage() {
     const [isReceiveOpen, setIsReceiveOpen] = useState(false);
 
-    const inventory = useLiveQuery(async () => {
-        const balances = await db.inventoryBalances.toArray();
-        // Join with products
-        const joined = await Promise.all(balances.map(async (b) => {
-            const product = await db.products.get(b.productId);
-            return {
-                ...b,
-                productName: product?.name || "Unknown Product",
-                brand: product?.brand || "-",
-                category: product?.category || "-",
-                sellPrice: product?.sellPrice
-            };
-        }));
-        return joined.sort((a, b) => a.productName.localeCompare(b.productName));
-    });
+    const [inventory, setInventory] = useState<any[]>([]);
+
+    const fetchInventory = async () => {
+        const { data: balances, error } = await supabase
+            .from('inventoryBalances')
+            .select(`
+                *,
+                products (
+                    name,
+                    brand,
+                    category,
+                    sellPrice
+                )
+            `);
+
+        if (error || !balances) return;
+
+        const joined = balances.map((b: any) => ({
+            ...b,
+            productName: b.products?.name || "Unknown Product",
+            brand: b.products?.brand || "-",
+            category: b.products?.category || "-",
+            sellPrice: b.products?.sellPrice
+        })).sort((a, b) => a.productName.localeCompare(b.productName));
+
+        setInventory(joined);
+    };
+
+    useEffect(() => {
+        fetchInventory();
+    }, []);
 
     return (
         <div className="space-y-6">
@@ -65,7 +80,7 @@ export default function InventoryPage() {
                                 納品書を元に入荷情報を入力してください。
                             </DialogDescription>
                         </DialogHeader>
-                        <ReceiveForm onSuccess={() => setIsReceiveOpen(false)} />
+                        <ReceiveForm onSuccess={() => { setIsReceiveOpen(false); fetchInventory(); }} />
                     </DialogContent>
                 </Dialog>
             </div>

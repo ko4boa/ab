@@ -1,9 +1,8 @@
 "use client"
 
-import { useState } from "react"
-import { useLiveQuery } from "dexie-react-hooks"
+import { useState, useEffect } from "react"
+import { supabase } from "@/lib/supabase"
 import { Plus, Search, Tag } from "lucide-react"
-import { db } from "@/lib/db"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
@@ -15,27 +14,48 @@ import {
     DialogTrigger,
 } from "@/components/ui/dialog"
 import { ProductForm } from "@/components/products/product-form"
+import { Product } from "@/types/schema"
+
+type ProductWithStock = Product & { stock: number };
 
 export default function ProductsPage() {
     const [isOpen, setIsOpen] = useState(false);
     const [searchTerm, setSearchTerm] = useState("");
+    const [products, setProducts] = useState<ProductWithStock[]>([]);
 
-    const products = useLiveQuery(async () => {
-        const allProducts = await db.products.toArray();
-        // Join with inventory for display
-        const result = await Promise.all(allProducts.map(async p => {
-            const bal = await db.inventoryBalances.get(p.productId);
-            return { ...p, stock: bal?.onHandQty || 0 };
-        }));
+    const fetchProducts = async () => {
+        const { data: allProducts, error } = await supabase
+            .from('products')
+            .select(`
+                *,
+                inventoryBalances (
+                    onHandQty
+                )
+            `);
 
-        if (!searchTerm) return result.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+        if (error || !allProducts) return;
 
-        const lower = searchTerm.toLowerCase();
-        return result.filter(p =>
-            p.name.toLowerCase().includes(lower) ||
-            p.brand.toLowerCase().includes(lower) ||
-            p.category.toLowerCase().includes(lower)
-        );
+        let result = allProducts.map(p => ({
+            ...p,
+            stock: p.inventoryBalances ? p.inventoryBalances.onHandQty : 0
+        })) as ProductWithStock[];
+
+        if (!searchTerm) {
+            result = result.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+        } else {
+            const lower = searchTerm.toLowerCase();
+            result = result.filter(p =>
+                p.name.toLowerCase().includes(lower) ||
+                p.brand.toLowerCase().includes(lower) ||
+                p.category.toLowerCase().includes(lower)
+            ).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+        }
+
+        setProducts(result);
+    };
+
+    useEffect(() => {
+        fetchProducts();
     }, [searchTerm]);
 
     return (
@@ -61,7 +81,7 @@ export default function ProductsPage() {
                                 新しい商品の情報を入力してください。
                             </DialogDescription>
                         </DialogHeader>
-                        <ProductForm onSuccess={() => setIsOpen(false)} />
+                        <ProductForm onSuccess={() => { setIsOpen(false); fetchProducts(); }} />
                     </DialogContent>
                 </Dialog>
             </div>

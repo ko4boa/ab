@@ -1,8 +1,7 @@
 "use client"
 
-import { useState } from "react"
-import { useLiveQuery } from "dexie-react-hooks"
-import { db } from "@/lib/db"
+import { useState, useEffect } from "react"
+import { supabase } from "@/lib/supabase"
 import { Button } from "@/components/ui/button"
 import {
     Dialog,
@@ -27,18 +26,31 @@ import { format } from "date-fns"
 export default function SalesPage() {
     const [isOpen, setIsOpen] = useState(false);
 
-    const sales = useLiveQuery(async () => {
-        const allSales = await db.sales.orderBy('soldAt').reverse().toArray();
-        // Join with products
-        const joined = await Promise.all(allSales.map(async (s) => {
-            const product = await db.products.get(s.productId);
-            return {
-                ...s,
-                productName: product?.name || "Unknown Product",
-            };
+    const [sales, setSales] = useState<any[]>([]);
+
+    const fetchSales = async () => {
+        const { data, error } = await supabase
+            .from('sales')
+            .select(`
+                *,
+                products (
+                    name
+                )
+            `)
+            .order('soldAt', { ascending: false });
+
+        if (error || !data) return;
+
+        const joined = data.map((s: any) => ({
+            ...s,
+            productName: s.products?.name || "Unknown Product",
         }));
-        return joined;
-    });
+        setSales(joined);
+    };
+
+    useEffect(() => {
+        fetchSales();
+    }, []);
 
     return (
         <div className="space-y-6">
@@ -63,7 +75,7 @@ export default function SalesPage() {
                                 商品を販売し、在庫から減算します。
                             </DialogDescription>
                         </DialogHeader>
-                        <SaleForm onSuccess={() => setIsOpen(false)} />
+                        <SaleForm onSuccess={() => { setIsOpen(false); fetchSales(); }} />
                     </DialogContent>
                 </Dialog>
             </div>

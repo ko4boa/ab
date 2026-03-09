@@ -1,8 +1,7 @@
 "use client"
 
-import { useState } from "react"
-import { useLiveQuery } from "dexie-react-hooks"
-import { db } from "@/lib/db"
+import { useState, useEffect } from "react"
+import { supabase } from "@/lib/supabase"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -36,7 +35,15 @@ export function ReceiveForm({ onSuccess }: ReceiveFormProps) {
         { id: '1', productId: '', qty: 1, unitCost: 0 }
     ]);
 
-    const products = useLiveQuery(() => db.products.toArray()) || [];
+    const [products, setProducts] = useState<any[]>([]);
+
+    useEffect(() => {
+        const fetchProducts = async () => {
+            const { data, error } = await supabase.from('products').select('*');
+            if (data) setProducts(data);
+        };
+        fetchProducts();
+    }, []);
 
     const addLine = () => {
         setLines([...lines, { id: crypto.randomUUID(), productId: '', qty: 1, unitCost: 0 }]);
@@ -83,7 +90,7 @@ export function ReceiveForm({ onSuccess }: ReceiveFormProps) {
             const poId = crypto.randomUUID();
 
             // Create PO
-            await db.purchaseOrders.add({
+            const { error: poError } = await supabase.from('purchaseOrders').insert({
                 poId,
                 receivedDate,
                 supplierId,
@@ -91,27 +98,40 @@ export function ReceiveForm({ onSuccess }: ReceiveFormProps) {
                 invoiceImageUrls: [],
                 createdAt: now
             });
+            if (poError) throw poError;
 
             // Create PO Lines & Update Inventory
-            await Promise.all(validLines.map(async (line) => {
+            for (const line of validLines) {
                 // Add Line
-                await db.purchaseOrderLines.add({
+                const { error: lineError } = await supabase.from('purchaseOrderLines').insert({
                     poLineId: crypto.randomUUID(),
                     poId,
                     productId: line.productId,
                     qty: line.qty,
                     unitCost: line.unitCost
                 });
+                if (lineError) throw lineError;
 
-                // Update Inventory Balance
-                const currentBal = await db.inventoryBalances.get(line.productId);
-                if (currentBal) {
-                    await db.inventoryBalances.update(line.productId, {
-                        onHandQty: (currentBal.onHandQty || 0) + line.qty,
+                // Update Inventory Balance via RPC or multiple calls
+                // For simplicity, let's fetch current then update
+                const { data: currentBal, error: getBalError } = await supabase
+                    .from('inventoryBalances')
+                    .select('onHandQty')
+                    .eq('productId', line.productId)
+                    .single();
+
+                if (getBalError) throw getBalError;
+
+                const { error: updateError } = await supabase
+                    .from('inventoryBalances')
+                    .update({
+                        onHandQty: (currentBal?.onHandQty || 0) + line.qty,
                         updatedAt: now
-                    });
-                }
-            }));
+                    })
+                    .eq('productId', line.productId);
+
+                if (updateError) throw updateError;
+            }
 
             onSuccess();
         } catch (error) {

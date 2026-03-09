@@ -1,6 +1,7 @@
 "use client"
 
-import { useLiveQuery } from "dexie-react-hooks";
+import { useState, useEffect } from "react"
+import { supabase } from "@/lib/supabase"
 import {
   ArrowUpRight,
   Box,
@@ -13,38 +14,48 @@ import {
 import Link from "next/link";
 
 import { Button } from "@/components/ui/button";
-import { db } from "@/lib/db";
 import { cn } from "@/lib/utils";
 
 export default function DashboardPage() {
-  // Live queries for real-time updates
-  const stats = useLiveQuery(async () => {
-    const products = await db.products.toArray();
-    const reservations = await db.reservations.where('status').equals('active').toArray();
+  const [stats, setStats] = useState<any>(null);
+
+  const fetchStats = async () => {
     const today = new Date().toISOString().split('T')[0];
-    const salesToday = await db.sales
-      .filter(s => s.soldAt.startsWith(today))
-      .toArray();
+
+    // Parallel fetch for dashboard data
+    const [
+      { data: products },
+      { data: reservations },
+      { data: salesToday },
+      { data: balances }
+    ] = await Promise.all([
+      supabase.from('products').select('*'),
+      supabase.from('reservations').select('*').eq('status', 'active'),
+      supabase.from('sales').select('*').gte('soldAt', today),
+      supabase.from('inventoryBalances').select('*, products(defaultCost)')
+    ]);
+
+    if (!products || !reservations || !salesToday || !balances) return;
 
     // Calculate totals
-    const totalStockValue = products.reduce((acc, p) => acc + ((p.defaultCost || 0) * 1), 0); // Simplified: need onHandQty join
-    // Correct way: join with inventoryBalances
-    const balances = await db.inventoryBalances.toArray();
-    const stockValue = balances.reduce((acc, b) => {
-      const product = products.find(p => p.productId === b.productId);
-      return acc + (b.onHandQty * (product?.defaultCost || 0));
+    const stockValue = balances.reduce((acc: number, b: any) => {
+      return acc + (b.onHandQty * (b.products?.defaultCost || 0));
     }, 0);
 
-    const totalSalesToday = salesToday.reduce((acc, s) => acc + (s.unitPrice || 0) * s.qty, 0);
+    const totalSalesToday = salesToday.reduce((acc: number, s: any) => acc + (s.unitPrice || 0) * s.qty, 0);
 
-    return {
+    setStats({
       productsCount: products.length,
       activeReservations: reservations.length,
       salesTodayCount: salesToday.length,
       salesTodayAmount: totalSalesToday,
       stockValue
-    };
-  });
+    });
+  };
+
+  useEffect(() => {
+    fetchStats();
+  }, []);
 
   return (
     <div className="space-y-8">
